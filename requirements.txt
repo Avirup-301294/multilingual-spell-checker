@@ -1,0 +1,4 @@
+flask
+pyspellchecker
+pycld3
+symspellpy

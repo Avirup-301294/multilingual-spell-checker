@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spell Checker Pro</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/static/css/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="container py-5">
+      <div class="row justify-content-center">
+        <div class="col-12 col-lg-10">
+          <!-- Header -->
+          <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold text-primary mb-2">Spell Checker Pro</h1>
+            <p class="lead text-muted">Advanced multi-language spell checking and correction</p>
+          </div>
+
+          <!-- Main Input Card -->
+          <div class="card app-card shadow-lg mb-4">
+            <div class="card-body p-4">
+              <div class="mb-4">
+                <label for="inputText" class="form-label fw-bold">Enter Text</label>
+                <textarea id="inputText" class="form-control" rows="6" placeholder="Type or paste your text here..."></textarea>
+              </div>
+
+              <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                  <label for="modeSelect" class="form-label small text-muted text-uppercase fw-bold">Mode</label>
+                  <select id="modeSelect" class="form-select">
+                    <option value="balanced" selected>Balanced</option>
+                    <option value="fast">Fast (SymSpell)</option>
+                    <option value="accurate">Accurate (Neural)</option>
+                  </select>
+                </div>
+                
+                <div class="col-md-3">
+                  <label for="langSelect" class="form-label small text-muted text-uppercase fw-bold">Languages</label>
+                  <select id="langSelect" class="form-select" multiple size="4">
+                    <option value="en" selected>English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="und">Auto-detect</option>
+                  </select>
+                </div>
+
+                <div class="col-md-6">
+                  <div class="d-flex gap-2 justify-content-end">
+                    <button id="checkBtn" class="btn btn-primary" onclick="checkSpelling()">
+                      <i class="bi bi-check-lg me-1"></i> Check
+                    </button>
+                    <button id="segmentBtn" class="btn btn-outline-primary" onclick="checkPerSegment()">
+                      <i class="bi bi-list-check me-1"></i> Segments
+                    </button>
+                    <button id="compareBtn" class="btn btn-outline-secondary" onclick="checkMultipleLanguages()">
+                      <i class="bi bi-translate me-1"></i> Compare
+                    </button>
+                    <button id="clearBtn" class="btn btn-light border" onclick="clearAll()">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Results Section -->
+          <div id="resultsArea" style="display: none;">
+            <div class="row">
+                <!-- Corrected Text -->
+                <div class="col-md-12 mb-4">
+                    <div class="card app-card h-100">
+                        <div class="card-body p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="card-title mb-0">Corrected Text</h5>
+                                <div>
+                                    <span class="text-muted small me-2">Detected:</span>
+                                    <span id="detectedLangBadge" class="badge bg-secondary">und</span>
+                                    <small id="detectedConfidence" class="text-muted ms-1">0.00</small>
+                                </div>
+                            </div>
+                            <p id="correctedText" class="lead mb-0 p-3 bg-light rounded"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suggestions -->
+                <div class="col-md-12">
+                    <div class="card app-card">
+                        <div class="card-body p-4">
+                            <h5 class="card-title mb-3">Detailed Suggestions</h5>
+                            <ul id="suggestionList" class="list-group list-group-flush rounded"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="/static/js/main.js"></script>
+  </body>
+</html>
