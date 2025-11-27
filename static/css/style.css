@@ -9,6 +9,11 @@
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
+.bg-custom-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
 body {
     background-color: var(--background-color);
     color: var(--text-color);
@@ -32,14 +37,16 @@ body {
     margin-bottom: 1.5rem;
 }
 
-.form-control, .form-select {
+.form-control,
+.form-select {
     border-radius: 8px;
     border: 1px solid #e2e8f0;
     padding: 0.75rem;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form-control:focus, .form-select:focus {
+.form-control:focus,
+.form-select:focus {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
@@ -120,8 +127,90 @@ pre.suggestion {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Editor Styles */
+.editor-container {
+    background: #fff;
+    border-radius: 0 0 8px 8px;
+}
+
+.checked-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #fff;
+    z-index: 10;
+    overflow-y: auto;
+}
+
+.misspelled {
+    background-color: rgba(220, 38, 38, 0.1);
+    border-bottom: 2px solid #dc2626;
+    border-radius: 4px;
+    padding: 0 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.misspelled:hover {
+    background-color: rgba(220, 38, 38, 0.2);
+}
+
+.misspelled.active-error {
+    background-color: rgba(220, 38, 38, 0.25);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+}
+
+/* Popover Customization */
+.popover {
+    border: none;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    max-width: 300px;
+}
+
+.popover-body {
+    padding: 0;
+}
+
+.suggestion-option {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background-color 0.2s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.suggestion-option:last-child {
+    border-bottom: none;
+}
+
+.suggestion-option:hover {
+    background-color: #f8fafc;
+}
+
+.suggestion-word {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.suggestion-lang {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    text-transform: uppercase;
 }
 
 /* Animations */
@@ -130,6 +219,13 @@ pre.suggestion {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

@@ -1,8 +1,74 @@
+let currentPopover = null;
+let checkTimeout = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const editor = document.getElementById('editor');
+    const placeholder = document.getElementById('placeholder');
+    
+    if (editor) {
+        editor.addEventListener('input', () => {
+            updateStats();
+            handleInput();
+            
+            // Toggle placeholder
+            if (editor.innerText.trim() === '') {
+                placeholder.style.display = 'block';
+            } else {
+                placeholder.style.display = 'none';
+            }
+        });
+        
+        // Handle paste to strip formatting and trigger immediate check
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = (e.originalEvent || e).clipboardData.getData('text/plain');
+            document.execCommand('insertText', false, text);
+            // Trigger check immediately after paste
+            if (checkTimeout) clearTimeout(checkTimeout);
+            checkTimeout = setTimeout(checkSpelling, 100);
+        });
+    }
+
+    // Auto-reload logic
+    let lastTimestamp = 0;
+    setInterval(async () => {
+        try {
+            const res = await fetch('/last_update');
+            const data = await res.json();
+            if (lastTimestamp === 0) {
+                lastTimestamp = data.timestamp;
+            } else if (data.timestamp > lastTimestamp) {
+                console.log("File change detected, reloading...");
+                location.reload();
+            }
+        } catch (e) {
+            console.error("Auto-reload check failed", e);
+        }
+    }, 1000);
+});
+
+function updateStats() {
+    const text = document.getElementById('editor').innerText;
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    const chars = text.length;
+    document.getElementById('statsWordCount').innerText = `${words} words`;
+    document.getElementById('statsCharCount').innerText = `${chars} chars`;
+}
+
+function handleInput() {
+    if (checkTimeout) clearTimeout(checkTimeout);
+    checkTimeout = setTimeout(checkSpelling, 300); // Debounce 300ms for faster feedback
+}
+
 async function checkSpelling() {
-    const text = document.getElementById("inputText").value;
+    const editor = document.getElementById("editor");
+    const text = editor.innerText;
+    
     if (!text.trim()) return;
 
-    showLoading(true);
+    // Don't show loading overlay for live check to avoid interrupting typing
+    // showLoading(true); 
+    
     const formData = new FormData();
     formData.append("text", text);
     const mode = document.getElementById("modeSelect").value;
@@ -21,190 +87,227 @@ async function checkSpelling() {
         const res = await fetch("/check", { method: "POST", body: formData });
         const data = await res.json();
 
-        document.getElementById("correctedText").innerText = data.corrected_text || "";
-        
+        // Update stats and badges
         if (data.detected_lang) {
             const badge = document.getElementById("detectedLangBadge");
+            const container = document.getElementById("detectedLangContainer");
             badge.innerText = data.detected_lang;
             badge.className = `badge ${data.confidence > 0.8 ? 'bg-success' : 'bg-warning'}`;
+            container.style.display = 'inline';
         }
         
-        if (data.confidence !== undefined) {
-            document.getElementById("detectedConfidence").innerText = Number(data.confidence).toFixed(2);
-        }
+        renderTokensPreservingCursor(data.tokens);
 
-        renderSuggestions(data.suggestions);
-        showResults();
     } catch (err) {
         console.error(err);
-        alert("Error checking spelling. See console for details.");
-    } finally {
-        showLoading(false);
     }
 }
 
-async function checkPerSegment() {
-    const text = document.getElementById("inputText").value.trim();
-    if (!text) return;
+function renderTokensPreservingCursor(tokens) {
+    const editor = document.getElementById("editor");
+    const selection = window.getSelection();
+    
+    // Save cursor position relative to text content
+    let start = 0;
+    let end = 0;
+    if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const preCaretRange = range.cloneRange();
+        preCaretRange.selectNodeContents(editor);
+        preCaretRange.setEnd(range.startContainer, range.startOffset);
+        start = preCaretRange.toString().length;
+        end = start + range.toString().length;
+    }
 
-    showLoading(true);
-    const segments = text.split(/(?<=[.?!])\s+/);
-    const resultsContainer = document.getElementById("suggestionList");
-    resultsContainer.innerHTML = "";
+    // Rebuild HTML
+    let html = "";
+    tokens.forEach((token, index) => {
+        if (token.type === "word" && !token.is_valid) {
+            // Escape HTML in token text
+            const safeText = escapeHtml(token.text);
+            const suggestions = JSON.stringify(token.suggestions).replace(/"/g, '&quot;');
+            html += `<span class="misspelled" id="token-${index}" data-suggestions="${suggestions}" onclick="showSuggestionPopover(event, this)">${safeText}</span>`;
+        } else {
+            html += escapeHtml(token.text);
+        }
+    });
+    
+    editor.innerHTML = html;
 
-    try {
-        for (const seg of segments) {
-            const fd = new FormData();
-            fd.append("text", seg);
-            fd.append("mode", document.getElementById("modeSelect").value);
+    // Restore cursor
+    restoreSelection(editor, start, end);
+}
 
-            const res = await fetch("/check", { method: "POST", body: fd });
-            const data = await res.json();
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
 
-            const header = document.createElement("li");
-            header.className = "list-group-item active mt-2 border-0 rounded";
-            header.style.backgroundColor = "var(--primary-color)";
-            header.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <span><strong>Segment</strong>: ${seg.substring(0, 50)}${seg.length > 50 ? '...' : ''}</span>
-                    <span class="badge bg-light text-dark">${data.detected_lang || "und"}</span>
-                </div>`;
-            resultsContainer.appendChild(header);
+function restoreSelection(containerEl, start, end) {
+    const charIndex = { count: 0 };
+    const range = document.createRange();
+    range.setStart(containerEl, 0);
+    range.collapse(true);
+    
+    const nodeStack = [containerEl];
+    let node, foundStart = false, foundEnd = false;
 
-            if (data.suggestions && Object.keys(data.suggestions).length) {
-                for (const [w, cands] of Object.entries(data.suggestions)) {
-                    addSuggestionItem(resultsContainer, w, cands);
-                }
-            } else {
-                const li = document.createElement("li");
-                li.className = "list-group-item text-muted fst-italic";
-                li.innerText = "No suggestions for this segment.";
-                resultsContainer.appendChild(li);
+    while (!foundEnd && (node = nodeStack.pop())) {
+        if (node.nodeType === 3) {
+            const nextCharIndex = charIndex.count + node.length;
+            if (!foundStart && start >= charIndex.count && start <= nextCharIndex) {
+                range.setStart(node, start - charIndex.count);
+                foundStart = true;
+            }
+            if (foundStart && end >= charIndex.count && end <= nextCharIndex) {
+                range.setEnd(node, end - charIndex.count);
+                foundEnd = true;
+            }
+            charIndex.count = nextCharIndex;
+        } else {
+            let i = node.childNodes.length;
+            while (i--) {
+                nodeStack.push(node.childNodes[i]);
             }
         }
-        showResults();
-    } catch (err) {
-        console.error("Segment check error", err);
-    } finally {
-        showLoading(false);
     }
+
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
 }
 
-async function checkMultipleLanguages() {
-    const text = document.getElementById("inputText").value;
-    if (!text) return;
+function showSuggestionPopover(event, element) {
+    event.stopPropagation();
     
-    const selected = Array.from(document.getElementById("langSelect").selectedOptions).map(o => o.value);
-    if (selected.length === 0) {
-        alert("Select one or more languages to compare.");
-        return;
+    // Close existing popover
+    if (currentPopover) {
+        currentPopover.dispose();
+        currentPopover = null;
+        document.querySelectorAll('.misspelled').forEach(el => el.classList.remove('active-error'));
     }
 
-    showLoading(true);
-    const resultsContainer = document.getElementById("suggestionList");
-    resultsContainer.innerHTML = "";
+    element.classList.add('active-error');
 
-    try {
-        const promises = selected.map(lang => {
-            const fd = new FormData();
-            fd.append("text", text);
-            if (lang !== "und") fd.append("lang", lang);
-            fd.append("mode", document.getElementById("modeSelect").value);
-            return fetch("/check", { method: "POST", body: fd }).then(r => r.json()).then(data => ({lang, data}));
+    const suggestions = JSON.parse(element.dataset.suggestions || "[]");
+    const popoverContent = document.createElement('div');
+    popoverContent.className = "list-group list-group-flush p-0";
+
+    if (suggestions.length === 0) {
+        popoverContent.innerHTML = `<div class="p-3 text-muted small">No suggestions found</div>`;
+    } else {
+        suggestions.forEach(s => {
+            const item = document.createElement('div');
+            item.className = "suggestion-option";
+            item.innerHTML = `
+                <span class="suggestion-word">${s.word}</span>
+                <span class="suggestion-lang">${s.lang}</span>
+            `;
+            item.onclick = () => applySuggestion(element, s.word);
+            popoverContent.appendChild(item);
         });
-
-        const results = await Promise.all(promises);
-        
-        for (const {lang, data} of results) {
-            const sec = document.createElement("li");
-            sec.className = "list-group-item active mt-2 border-0 rounded";
-            sec.style.backgroundColor = "var(--secondary-color)";
-            sec.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <span><strong>Language:</strong> ${lang}</span>
-                    <small class="text-light">Detected: ${data.detected_lang || 'und'} (${Number(data.confidence||0).toFixed(2)})</small>
-                </div>`;
-            resultsContainer.appendChild(sec);
-
-            if (data.suggestions && Object.keys(data.suggestions).length) {
-                for (const [w, cands] of Object.entries(data.suggestions)) {
-                    addSuggestionItem(resultsContainer, w, cands);
-                }
-            } else {
-                const li = document.createElement("li");
-                li.className = "list-group-item text-muted fst-italic";
-                li.innerText = "No suggestions";
-                resultsContainer.appendChild(li);
-            }
-        }
-        showResults();
-    } catch (err) {
-        console.error(err);
-    } finally {
-        showLoading(false);
     }
-}
-
-function renderSuggestions(suggestions) {
-    const suggestionList = document.getElementById("suggestionList");
-    suggestionList.innerHTML = "";
-
-    if (!suggestions || Object.keys(suggestions).length === 0) {
-        const li = document.createElement("li");
-        li.className = "list-group-item text-center text-muted py-4";
-        li.innerHTML = "<i class='bi bi-check-circle display-4 d-block mb-2'></i>No spelling errors found!";
-        suggestionList.appendChild(li);
-        return;
-    }
-
-    for (const [word, candidates] of Object.entries(suggestions)) {
-        addSuggestionItem(suggestionList, word, candidates);
-    }
-}
-
-function addSuggestionItem(container, word, candidates) {
-    const li = document.createElement("li");
-    li.className = "list-group-item suggestion-item fade-in";
     
-    // Format candidates with language tags
-    const candidateHtml = candidates.map(c => {
-        if (typeof c === 'object' && c.word) {
-            return `<span class="suggestion-word">${c.word} <small class="text-muted">(${c.lang})</small></span>`;
+    // Add "Ignore" option
+    const ignoreItem = document.createElement('div');
+    ignoreItem.className = "suggestion-option text-muted";
+    ignoreItem.innerHTML = `<span class="small">Ignore</span>`;
+    ignoreItem.onclick = () => {
+        element.classList.remove("misspelled", "active-error");
+        // Replace span with text node
+        const textNode = document.createTextNode(element.innerText);
+        element.parentNode.replaceChild(textNode, element);
+        if (currentPopover) currentPopover.dispose();
+    };
+    popoverContent.appendChild(ignoreItem);
+
+    currentPopover = new bootstrap.Popover(element, {
+        content: popoverContent,
+        html: true,
+        trigger: 'manual',
+        placement: 'bottom',
+        customClass: 'shadow-lg'
+    });
+
+    currentPopover.show();
+
+    // Close on click outside
+    const closeHandler = (e) => {
+        if (!element.contains(e.target) && !document.querySelector('.popover')?.contains(e.target)) {
+            if (currentPopover) {
+                currentPopover.dispose();
+                currentPopover = null;
+                element.classList.remove('active-error');
+            }
+            document.removeEventListener('click', closeHandler);
         }
-        return c;
-    }).join(", ");
-
-    li.innerHTML = `
-        <div class="row align-items-center">
-            <div class="col-md-3">
-                <span class="text-danger text-decoration-line-through fw-bold">${word}</span>
-            </div>
-            <div class="col-md-1 text-center text-muted">
-                <i class="bi bi-arrow-right"></i>
-            </div>
-            <div class="col-md-8">
-                <span class="suggestion text-success fw-bold">${candidateHtml}</span>
-            </div>
-        </div>`;
-    container.appendChild(li);
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 0);
 }
 
-function showLoading(show) {
-    const overlay = document.getElementById('loadingOverlay');
-    overlay.style.display = show ? 'flex' : 'none';
+function applySuggestion(element, newWord) {
+    // Replace span with new text
+    const textNode = document.createTextNode(newWord);
+    element.parentNode.replaceChild(textNode, element);
+    
+    if (currentPopover) {
+        currentPopover.dispose();
+        currentPopover = null;
+    }
+    updateStats();
+    // Trigger re-check
+    checkSpelling();
 }
 
-function showResults() {
-    document.getElementById('resultsArea').style.display = 'block';
-    document.getElementById('resultsArea').scrollIntoView({ behavior: 'smooth' });
+function fixAll() {
+    const misspelledElements = document.querySelectorAll('.misspelled');
+    if (misspelledElements.length === 0) return;
+
+    let fixedCount = 0;
+    misspelledElements.forEach(el => {
+        const suggestions = JSON.parse(el.dataset.suggestions || "[]");
+        if (suggestions.length > 0) {
+            const bestSuggestion = suggestions[0].word;
+            const textNode = document.createTextNode(bestSuggestion);
+            el.parentNode.replaceChild(textNode, el);
+            fixedCount++;
+        }
+    });
+
+    if (fixedCount > 0) {
+        updateStats();
+        // Trigger re-check to ensure everything is clean
+        checkSpelling();
+    }
+}
+
+function copyText() {
+    const text = document.getElementById("editor").innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById("copyBtn");
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i>';
+        setTimeout(() => btn.innerHTML = originalHtml, 2000);
+    });
 }
 
 function clearAll() {
-    document.getElementById('inputText').value = '';
-    document.getElementById('correctedText').innerText = '';
-    document.getElementById('suggestionList').innerHTML = '';
-    document.getElementById('detectedLangBadge').innerText = 'und';
-    document.getElementById('detectedLangBadge').className = 'badge bg-secondary';
-    document.getElementById('detectedConfidence').innerText = '0.00';
-    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById("editor").innerText = "";
+    document.getElementById("placeholder").style.display = 'block';
+    document.getElementById("statsWordCount").innerText = "0 words";
+    document.getElementById("statsCharCount").innerText = "0 chars";
+    document.getElementById("detectedLangContainer").style.display = "none";
+}
+
+// Placeholder functions
+function checkPerSegment() {
+    alert("Segment view is currently being updated. Please use the main check.");
+}
+
+function checkMultipleLanguages() {
+    alert("Multi-language comparison is currently being updated. Please use the main check.");
 }

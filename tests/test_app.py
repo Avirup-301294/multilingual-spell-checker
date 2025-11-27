@@ -17,15 +17,25 @@ class SpellCheckerTestCase(unittest.TestCase):
         response = self.app.post('/check', data=payload)
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data)
-        self.assertEqual(data['corrected_text'], 'the world')
-        self.assertIn('teh', data['suggestions'])
+        
+        # Check tokens structure
+        self.assertIn('tokens', data)
+        tokens = data['tokens']
+        self.assertTrue(len(tokens) > 0)
+        
+        # Find "teh" token
+        teh_token = next((t for t in tokens if t['text'] == 'teh'), None)
+        self.assertIsNotNone(teh_token)
+        self.assertFalse(teh_token['is_valid'])
+        self.assertTrue(len(teh_token['suggestions']) > 0)
+        self.assertEqual(teh_token['suggestions'][0]['word'], 'the')
 
     def test_check_spelling_json(self):
         payload = {'text': 'teh world', 'mode': 'balanced'}
         response = self.app.post('/check', json=payload)
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data)
-        self.assertEqual(data['corrected_text'], 'the world')
+        self.assertIn('tokens', data)
 
     def test_empty_text(self):
         payload = {'text': ''}

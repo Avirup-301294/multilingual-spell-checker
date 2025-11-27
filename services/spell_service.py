@@ -20,6 +20,14 @@ class SpellCheckerService:
     def __init__(self):
         self.spell = SpellChecker()
         self.spell_engines: Dict[str, SpellChecker] = {"en": self.spell}
+        
+        # Pre-load common languages to avoid cold start latency
+        # especially 'de' since it's used for cross-checking English
+        try:
+            self.spell_engines["de"] = self._create_fallback_engine("de")
+        except Exception:
+            pass
+            
         self.sym_spell = self._initialize_symspell()
 
     def _initialize_symspell(self):
@@ -116,7 +124,7 @@ class SpellCheckerService:
 
     def _create_fallback_engine(self, lang: str):
         try:
-            engine = SpellChecker()
+            engine = SpellChecker(language=None) # Empty engine
             import os
             # Assuming data directory is relative to the service file or we need to adjust path
             # For simplicity, let's assume data is in the parent directory's data folder
@@ -148,9 +156,12 @@ class SpellCheckerService:
 
     def process_text(self, text: str, mode: str = "balanced", lang: str = None, cross_check_langs: List[str] = None) -> Dict:
         if not text:
-            return {"corrected_text": "", "suggestions": {}}
+            return {"tokens": []}
 
-        segments = re.split(r"([A-Za-z']+)", text)
+        # Split text into tokens (words and non-words) keeping delimiters
+        # This regex captures words and keeps everything else as separate tokens
+        tokens_raw = re.split(r"([A-Za-z']+)", text)
+        
         engine = self.get_engine(lang)
         
         # Prepare cross-check engines
@@ -160,19 +171,35 @@ class SpellCheckerService:
                 if cl != lang:
                     cross_engines.append((cl, self.get_engine(cl)))
 
-        words_lower: List[str] = [s.lower() for s in segments if WORD_RE.fullmatch(s)]
+        # Identify misspelled words for batch processing
+        words_to_check = [t for t in tokens_raw if WORD_RE.fullmatch(t)]
+        words_lower = [w.lower() for w in words_to_check]
         misspelled = set(engine.unknown(words_lower))
 
-        corrected_segments: List[str] = []
-        suggestions: Dict[str, List[Dict[str, str]]] = {}
+        processed_tokens = []
 
-        for seg in segments:
-            if WORD_RE.fullmatch(seg):
-                key = seg.lower()
+        for token in tokens_raw:
+            if not token:
+                continue
+                
+            token_data = {
+                "text": token,
+                "type": "text",
+                "is_valid": True,
+                "suggestions": []
+            }
+
+            if WORD_RE.fullmatch(token):
+                token_data["type"] = "word"
+                key = token.lower()
+                
                 if key in misspelled:
+                    token_data["is_valid"] = False
+                    
                     # Primary language suggestions
                     primary_candidates = []
-                    if mode == "fast" and self.sym_spell is not None and Verbosity is not None:
+                    # Use SymSpell for 'balanced' mode too if available, as it's much faster
+                    if (mode == "fast" or mode == "balanced") and self.sym_spell is not None and Verbosity is not None:
                         try:
                             lookup = self.sym_spell.lookup(key, Verbosity.CLOSEST, max_edit_distance=2)
                             primary_candidates = [s.term for s in lookup] if lookup else []
@@ -183,7 +210,6 @@ class SpellCheckerService:
                         try:
                             cand = engine.candidates(key)
                             if cand:
-                                # Sort by frequency (descending)
                                 primary_candidates = sorted(list(cand), key=lambda w: engine.word_frequency[w], reverse=True)
                             else:
                                 primary_candidates = []
@@ -196,31 +222,25 @@ class SpellCheckerService:
                     # Cross-language suggestions
                     for cl_code, cl_engine in cross_engines:
                         try:
-                            # Check if the word exists in the other language
                             if key in cl_engine:
-                                # If it exists in the other language, suggest it as is
                                 formatted_suggestions.append({"word": key, "lang": cl_code})
                             else:
-                                # Otherwise look for corrections in that language
                                 cl_cands = cl_engine.candidates(key)
                                 if cl_cands:
-                                    # Sort and take top 3
                                     sorted_cl = sorted(list(cl_cands), key=lambda w: cl_engine.word_frequency[w], reverse=True)[:3]
                                     for w in sorted_cl:
-                                        # Avoid duplicates
                                         if not any(fs["word"] == w and fs["lang"] == cl_code for fs in formatted_suggestions):
                                             formatted_suggestions.append({"word": w, "lang": cl_code})
                         except Exception:
                             continue
-
-                    best = primary_candidates[0] if primary_candidates else (engine.correction(key) or key)
-                    corrected = self._preserve_case(seg, best)
-                    corrected_segments.append(corrected)
-                    suggestions[key] = formatted_suggestions
-                else:
-                    corrected_segments.append(seg)
+                    
+                    token_data["suggestions"] = formatted_suggestions
             else:
-                corrected_segments.append(seg)
+                if token.isspace():
+                    token_data["type"] = "space"
+                else:
+                    token_data["type"] = "punctuation"
 
-        corrected_text = "".join(corrected_segments)
-        return {"corrected_text": corrected_text, "suggestions": suggestions}
+            processed_tokens.append(token_data)
+
+        return {"tokens": processed_tokens}
